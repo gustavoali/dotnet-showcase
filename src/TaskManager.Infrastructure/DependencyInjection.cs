@@ -1,9 +1,12 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using TaskManager.Application.Common.Interfaces;
 using TaskManager.Domain.Interfaces;
 using TaskManager.Infrastructure.Persistence;
 using TaskManager.Infrastructure.Persistence.Repositories;
+using TaskManager.Infrastructure.Services;
 
 namespace TaskManager.Infrastructure;
 
@@ -29,6 +32,10 @@ public static class DependencyInjection
 
         services.AddScoped(typeof(IRepository<>), typeof(GenericRepository<>));
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        services.AddHttpContextAccessor();
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ICurrentUserService, CurrentUserService>();
 
         return services;
     }

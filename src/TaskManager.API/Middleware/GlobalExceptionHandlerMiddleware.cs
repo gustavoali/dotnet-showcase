@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json;
-using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
+using TaskManager.Application.Common.Exceptions;
 
 namespace TaskManager.API.Middleware;
 
@@ -12,6 +12,11 @@ public class GlobalExceptionHandlerMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<GlobalExceptionHandlerMiddleware> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     /// <summary>
     /// Initializes a new instance of the <see cref="GlobalExceptionHandlerMiddleware"/> class.
@@ -39,6 +44,16 @@ public class GlobalExceptionHandlerMiddleware
             _logger.LogWarning(ex, "Validation error occurred");
             await HandleValidationExceptionAsync(context, ex);
         }
+        catch (NotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Resource not found");
+            await HandleNotFoundExceptionAsync(context, ex);
+        }
+        catch (ForbiddenAccessException ex)
+        {
+            _logger.LogWarning(ex, "Forbidden access attempt");
+            await HandleForbiddenExceptionAsync(context, ex);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An unhandled exception occurred");
@@ -51,31 +66,49 @@ public class GlobalExceptionHandlerMiddleware
         context.Response.ContentType = "application/problem+json";
         context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
 
-        var problemDetails = new ValidationProblemDetails
+        var problemDetails = new ValidationProblemDetails(
+            exception.Errors.ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
         {
             Status = (int)HttpStatusCode.BadRequest,
             Title = "One or more validation errors occurred.",
             Type = "https://tools.ietf.org/html/rfc9110#section-15.5.1"
         };
 
-        foreach (var error in exception.Errors)
-        {
-            if (problemDetails.Errors.ContainsKey(error.PropertyName))
-            {
-                problemDetails.Errors[error.PropertyName] =
-                    problemDetails.Errors[error.PropertyName].Append(error.ErrorMessage).ToArray();
-            }
-            else
-            {
-                problemDetails.Errors[error.PropertyName] = new[] { error.ErrorMessage };
-            }
-        }
+        var json = JsonSerializer.Serialize(problemDetails, JsonOptions);
+        await context.Response.WriteAsync(json);
+    }
 
-        var json = JsonSerializer.Serialize(problemDetails, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        });
+    private static async Task HandleNotFoundExceptionAsync(HttpContext context, NotFoundException exception)
+    {
+        context.Response.ContentType = "application/problem+json";
+        context.Response.StatusCode = (int)HttpStatusCode.NotFound;
 
+        var problemDetails = new ProblemDetails
+        {
+            Status = (int)HttpStatusCode.NotFound,
+            Title = "Resource not found.",
+            Type = "https://tools.ietf.org/html/rfc9110#section-15.5.5",
+            Detail = exception.Message
+        };
+
+        var json = JsonSerializer.Serialize(problemDetails, JsonOptions);
+        await context.Response.WriteAsync(json);
+    }
+
+    private static async Task HandleForbiddenExceptionAsync(HttpContext context, ForbiddenAccessException exception)
+    {
+        context.Response.ContentType = "application/problem+json";
+        context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
+
+        var problemDetails = new ProblemDetails
+        {
+            Status = (int)HttpStatusCode.Forbidden,
+            Title = "Forbidden.",
+            Type = "https://tools.ietf.org/html/rfc9110#section-15.5.4",
+            Detail = exception.Message
+        };
+
+        var json = JsonSerializer.Serialize(problemDetails, JsonOptions);
         await context.Response.WriteAsync(json);
     }
 
@@ -92,11 +125,7 @@ public class GlobalExceptionHandlerMiddleware
             Detail = exception.Message
         };
 
-        var json = JsonSerializer.Serialize(problemDetails, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        });
-
+        var json = JsonSerializer.Serialize(problemDetails, JsonOptions);
         await context.Response.WriteAsync(json);
     }
 }

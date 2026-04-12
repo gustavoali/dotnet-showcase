@@ -1,6 +1,9 @@
 using System.Reflection;
 using FluentValidation;
+using MediatR;
 using Microsoft.Extensions.DependencyInjection;
+using TaskManager.Application.Common.Behaviours;
+using TaskManager.Application.Common.Mappings;
 
 namespace TaskManager.Application;
 
@@ -20,6 +23,9 @@ public static class DependencyInjection
 
         services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(assembly));
         services.AddValidatorsFromAssembly(assembly);
+        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehaviour<,>));
+
+        MappingConfig.RegisterMappings();
 
         return services;
     }
