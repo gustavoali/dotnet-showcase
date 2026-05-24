@@ -6,6 +6,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- INS-007: SDK container build (dotnet publish /t:PublishContainer).
+       Coexiste con el Dockerfile existente (directiva 5, no se borra). -->
+  <PropertyGroup>
+    <ContainerRepository>taskmanager-api</ContainerRepository>
+    <ContainerImageTags>$(Version);latest</ContainerImageTags>
+    <!-- Usuario no-root 'app' (UID 1654) ya viene en la base aspnet:8.0; explicito por claridad -->
+    <ContainerUser>app</ContainerUser>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ContainerPort Include="8080" Type="tcp" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.*" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.22" />
