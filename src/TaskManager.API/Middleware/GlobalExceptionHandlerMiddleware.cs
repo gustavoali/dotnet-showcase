@@ -54,6 +54,16 @@ public class GlobalExceptionHandlerMiddleware
             _logger.LogWarning(ex, "Forbidden access attempt");
             await HandleForbiddenExceptionAsync(context, ex);
         }
+        catch (AiUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "AI service unavailable");
+            await HandleAiUnavailableExceptionAsync(context, ex);
+        }
+        catch (AiResponseException ex)
+        {
+            _logger.LogWarning(ex, "AI service returned an unprocessable response");
+            await HandleAiResponseExceptionAsync(context, ex);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An unhandled exception occurred");
@@ -105,6 +115,40 @@ public class GlobalExceptionHandlerMiddleware
             Status = (int)HttpStatusCode.Forbidden,
             Title = "Forbidden.",
             Type = "https://tools.ietf.org/html/rfc9110#section-15.5.4",
+            Detail = exception.Message
+        };
+
+        var json = JsonSerializer.Serialize(problemDetails, JsonOptions);
+        await context.Response.WriteAsync(json);
+    }
+
+    private static async Task HandleAiUnavailableExceptionAsync(HttpContext context, AiUnavailableException exception)
+    {
+        context.Response.ContentType = "application/problem+json";
+        context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+
+        var problemDetails = new ProblemDetails
+        {
+            Status = (int)HttpStatusCode.ServiceUnavailable,
+            Title = "AI service unavailable.",
+            Type = "https://tools.ietf.org/html/rfc9110#section-15.6.4",
+            Detail = exception.Message
+        };
+
+        var json = JsonSerializer.Serialize(problemDetails, JsonOptions);
+        await context.Response.WriteAsync(json);
+    }
+
+    private static async Task HandleAiResponseExceptionAsync(HttpContext context, AiResponseException exception)
+    {
+        context.Response.ContentType = "application/problem+json";
+        context.Response.StatusCode = (int)HttpStatusCode.BadGateway;
+
+        var problemDetails = new ProblemDetails
+        {
+            Status = (int)HttpStatusCode.BadGateway,
+            Title = "AI service returned an invalid response.",
+            Type = "https://tools.ietf.org/html/rfc9110#section-15.6.3",
             Detail = exception.Message
         };
 

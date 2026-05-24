@@ -89,6 +89,46 @@ public class GlobalExceptionHandlerMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_Should_Return503_ForAiUnavailableException()
+    {
+        // Arrange
+        RequestDelegate next = _ => throw new AiUnavailableException("AI not configured.");
+        var middleware = new GlobalExceptionHandlerMiddleware(next, _loggerMock.Object);
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        // Act
+        await middleware.InvokeAsync(context);
+
+        // Assert
+        context.Response.StatusCode.Should().Be((int)HttpStatusCode.ServiceUnavailable);
+        context.Response.ContentType.Should().Be("application/problem+json");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_Should_Return502_ForAiResponseException()
+    {
+        // Arrange — the service is reachable but returned an unprocessable payload.
+        RequestDelegate next = _ => throw new AiResponseException("Bad model output.");
+        var middleware = new GlobalExceptionHandlerMiddleware(next, _loggerMock.Object);
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        // Act
+        await middleware.InvokeAsync(context);
+
+        // Assert
+        context.Response.StatusCode.Should().Be((int)HttpStatusCode.BadGateway);
+        context.Response.ContentType.Should().Be("application/problem+json");
+
+        context.Response.Body.Seek(0, SeekOrigin.Begin);
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        var problemDetails = JsonSerializer.Deserialize<ProblemDetails>(body, _jsonOptions);
+        problemDetails.Should().NotBeNull();
+        problemDetails!.Status.Should().Be(502);
+    }
+
+    [Fact]
     public async Task InvokeAsync_Should_Return500_ForUnhandledException()
     {
         // Arrange

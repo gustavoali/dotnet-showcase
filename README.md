@@ -56,6 +56,7 @@ Each layer depends only on the layers below it. The Domain layer has no external
 | Containerization   | Docker, Docker Compose                  |
 | Testing            | xUnit, FluentAssertions, Moq            |
 | API Documentation  | Swagger / OpenAPI                       |
+| AI Assistant       | Official Anthropic SDK + Microsoft.Extensions.AI |
 | CI/CD              | GitHub Actions                          |
 
 ---
@@ -143,6 +144,30 @@ curl -X POST http://localhost:5000/api/auth/login \
 | POST   | `/api/tasks/{id}/comments`    | Add comment       | Yes  |
 | GET    | `/api/tasks/{id}/comments`    | List comments     | Yes  |
 
+### AI Assistant
+
+| Method | Endpoint                          | Description                                   | Auth |
+|--------|-----------------------------------|-----------------------------------------------|------|
+| POST   | `/api/ai/tasks/draft`             | Draft a structured task from natural language | Yes  |
+| POST   | `/api/ai/projects/{id}/summary`   | Stream a natural-language project summary     | Yes  |
+
+The AI Assistant is powered by the official [Anthropic C# SDK](https://www.nuget.org/packages/Anthropic) integrated through [`Microsoft.Extensions.AI`](https://www.nuget.org/packages/Microsoft.Extensions.AI)'s `IChatClient` abstraction. The dependency on the SDK is confined entirely to the Infrastructure layer behind an `IAiAssistant` interface, so the rest of the application stays provider-agnostic.
+
+**Configuration.** Set the model and token budget under the `"Ai"` section of `appsettings.json` (defaults: model `claude-haiku-4-5`, 1024 max output tokens). The API key is **never** stored in the repository -- it is read from the `ANTHROPIC_API_KEY` environment variable (or .NET User Secrets in development):
+
+```bash
+# Linux/macOS
+export ANTHROPIC_API_KEY="your-key-here"
+
+# Windows (PowerShell)
+$env:ANTHROPIC_API_KEY = "your-key-here"
+
+# Or, in development, via User Secrets
+dotnet user-secrets set "ANTHROPIC_API_KEY" "your-key-here" --project src/TaskManager.API
+```
+
+**Graceful degradation.** If no API key is configured, the AI endpoints return `503 Service Unavailable` and the rest of the API continues to function normally. For the streaming summary endpoint this is enforced eagerly (the assistant's availability is checked before the response is produced), so the `503` is set before any response body is flushed. If the model is reachable but returns an unparseable draft, the draft endpoint returns `502 Bad Gateway` — distinguishing a faulty upstream payload from an unavailable service. The summary endpoint streams its chunks as an incremental JSON array of strings (`application/json`).
+
 ---
 
 ## Project Structure
@@ -173,12 +198,14 @@ dotnet build --no-incremental
 dotnet test --configuration Release
 ```
 
-**91 tests** across all layers:
+**128 tests** across all layers:
 
 - **Domain** -- Entity invariants and business rules
 - **Application** -- Command/query handlers, validators, mapping
-- **Infrastructure** -- Service implementations
-- **API** -- Middleware and controller behavior
+- **Infrastructure** -- Service implementations (including the AI assistant, with a faked `IChatClient`)
+- **API** -- Middleware, controller behavior, and `WebApplicationFactory` integration tests (including the no-API-key `503` path)
+
+AI assistant tests use a fake `IChatClient` so they never call the real Anthropic API or consume tokens; CI requires no API key.
 
 ---
 
@@ -190,7 +217,9 @@ dotnet test --configuration Release
 
 - **FluentValidation pipeline** -- Validation runs as a MediatR behavior, ensuring every command is validated before reaching the handler. No validation logic leaks into controllers.
 
-- **Global exception handling** -- A single middleware maps domain exceptions (NotFound, Validation, ForbiddenAccess) to appropriate HTTP status codes, keeping controllers thin.
+- **Global exception handling** -- A single middleware maps domain exceptions (NotFound, Validation, ForbiddenAccess, AiUnavailable) to appropriate HTTP status codes, keeping controllers thin.
+
+- **Provider-agnostic AI integration** -- The AI assistant lives behind an `IAiAssistant` abstraction in the Application layer. The Anthropic SDK and `Microsoft.Extensions.AI`'s `IChatClient` are confined to a single Infrastructure service, so the AI provider can be swapped without touching business logic. When no API key is configured, a no-op implementation is registered instead, degrading the feature gracefully without affecting the rest of the API.
 
 - **Structured logging with Serilog** -- JSON-formatted logs with correlation context, ready for production log aggregation.
 
